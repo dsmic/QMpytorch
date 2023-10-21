@@ -1,0 +1,3 @@
+[submodule "torchquad"]
+	path = torchquad
+	url = git@github.com:dsmic/torchquad.git
