@@ -274,11 +274,11 @@ def doIntegration(pinp, seed=None, N=None):
     Normvalue = integral_value = Integrator.integrate(lambda y: vmap(lambda y: Norm(lambda x: testwf(ppp, x), y), chunk_size=vmap_chunk_size)(y),
                                                       dim=nParticles, N=N_Int_Points_loc,  integration_domain=IntElectron*nElectrons+IntNuclei*nNuclei, vegasmap=map_Norm, use_warmup=(map_Norm is None), seed=seed)
     if seed is None:
-    map_Norm = Integrator.map
+        map_Norm = Integrator.map
     integral_value = Integrator.integrate(lambda y: H(lambda x: testwf(ppp, x), y),
                                           dim=nParticles, N=N_Int_Points_loc,  integration_domain=IntElectron*nElectrons+IntNuclei*nNuclei, vegasmap=map_H, use_warmup=(map_H is None), seed=seed)
     if seed is None:
-    map_H = Integrator.map
+        map_H = Integrator.map
     retH = integral_value/Normvalue
     print("              H", "{:.5f}".format(float(retH.cpu())), ppp.cpu().numpy(), "{:.2f}".format(time.time() - start), "(" + "{:.2f}".format(plottime) + ")", seed)
     return retH.cpu().numpy()
