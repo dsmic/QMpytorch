@@ -20,7 +20,7 @@ vmap_chunk_size = 100000  # 2**13
 print("vmap_chunk_size", vmap_chunk_size)
 
 N_Int_Plot = 5000
-N_Int_Points = 3000000
+N_Int_Points = 300000
 
 set_up_backend("torch", data_type="float64")
 # set_log_level("INFO")
