@@ -6,14 +6,17 @@ import torch
 from torchquad import VEGAS, set_up_backend, set_log_level
 from torch import vmap
 import time
-from noisyopt import minimizeCompass
+from noisyopt import minimizeCompass, minimizeSPSA
 from itertools import permutations
 from sympy.combinatorics.permutations import Permutation
+
+np.set_printoptions(linewidth=np.inf)
+np.set_printoptions(formatter={'float': lambda x: "{0:0.3f}".format(x)})
 
 # this may tune the performance and memory usage
 # smaller values on cpu can imporove cache usage
 # larger values on gpu can improve parallelization
-vmap_chunk_size = 2**13
+vmap_chunk_size = 100000  # 2**13
 print("vmap_chunk_size", vmap_chunk_size)
 
 N_Int_Plot = 5000
@@ -30,8 +33,10 @@ j = None
 # ppp[0] = distance between nuclei
 # ppp[1] = is used for the integration range of the nuclei
 # ppp[2] = is used for the integration range of the electrons
-ppp = np.array([3.25, 0.342, 5.695, 11.8, 0.5, 0.5, 1.0])
-do_errorcontrol = True
+# ppp = np.array([3.25, 0.342, 5.695, 11.8, 0.5, 0.5, 1.0])
+
+ppp = np.array([3.0, 0.5, 6, 12, 0.5, 0.5, 1.0])
+H_precision_expected = 0.05  # This is the c parameter of the SPSA optimizer, it is approximatly the standard deviation of the energy
 
 do_plot_every = None
 plot_factor = 1.0
@@ -110,6 +115,7 @@ def Epot_plot(wf, x, plot_pos):
 
 
 def H_single(wf, x):
+    # <see cref="file://./Docs/PartIntMulti.jpg"/>
     if j is None:
         gg = torch.func.grad(lambda x: wf(x).real)(x)
     else:
@@ -131,8 +137,6 @@ def CorrelateWF(xinp, ppp_part):
     x2 = x.reshape(1, - 1)
     mask = (q.reshape(-1, 1) * q.reshape(1, -1))
     dx = x1 - x2
-    # Vdx = dx
-    # Vdx = Vdx.triu(diagonal=1)
     res = torch.where(mask > 0, -ppp_part[0]*torch.exp(-ppp_part[2]*dx**2), ppp_part[1]*torch.exp(-ppp_part[2]*dx**2))
     res = res.triu(diagonal=1)
     return (torch.ones((nParticles, nParticles)) + res).prod()
@@ -166,13 +170,13 @@ for i in permutations(list(range(nElectrons))):
     p = a.parity()
     if p == 0:
         p = -1
-    print(i, p)
+    # print(i, p)
     perms.append(list(i) + list(range(nElectrons, nParticles)))
     perms_p.append(p)
 
 perms = np.array(perms)
-print(perms)
-print(perms.shape)
+# print(perms)
+# print(perms.shape)
 
 
 def plotwf(ppp, plot_pos, where):
@@ -247,8 +251,12 @@ map_Norm = None
 map_H = None
 
 
-def doIntegration(pinp):
+def doIntegration(pinp, seed=None, N=None):
     global plotcounter, map_Norm, map_H
+    if N is not None:
+        N_Int_Points_loc = N
+    else:
+        N_Int_Points_loc = N_Int_Points
     start = time.time()
     global offsets
     ppp = torch.tensor(pinp)
@@ -264,27 +272,38 @@ def doIntegration(pinp):
     IntElectron = [[-calc_int_electron(ppp), calc_int_electron(ppp)]]
     IntNuclei = [[-calc_int_nuclei(ppp), calc_int_nuclei(ppp)]]
     Normvalue = integral_value = Integrator.integrate(lambda y: vmap(lambda y: Norm(lambda x: testwf(ppp, x), y), chunk_size=vmap_chunk_size)(y),
-                                                      dim=nParticles, N=N_Int_Points,  integration_domain=IntElectron*nElectrons+IntNuclei*nNuclei, vegasmap=map_Norm, use_warmup=(map_Norm is None))
+                                                      dim=nParticles, N=N_Int_Points_loc,  integration_domain=IntElectron*nElectrons+IntNuclei*nNuclei, vegasmap=map_Norm, use_warmup=(map_Norm is None), seed=seed)
+    if seed is None:
     map_Norm = Integrator.map
     integral_value = Integrator.integrate(lambda y: H(lambda x: testwf(ppp, x), y),
-                                          dim=nParticles, N=N_Int_Points,  integration_domain=IntElectron*nElectrons+IntNuclei*nNuclei, vegasmap=map_H, use_warmup=(map_H is None))
+                                          dim=nParticles, N=N_Int_Points_loc,  integration_domain=IntElectron*nElectrons+IntNuclei*nNuclei, vegasmap=map_H, use_warmup=(map_H is None), seed=seed)
+    if seed is None:
     map_H = Integrator.map
     retH = integral_value/Normvalue
-    print("H", integral_value, ppp.cpu().numpy(), retH, time.time() - start, "(" + str(plottime) + ")", IntElectron, IntNuclei)
+    print("              H", "{:.5f}".format(float(retH.cpu())), ppp.cpu().numpy(), "{:.2f}".format(time.time() - start), "(" + "{:.2f}".format(plottime) + ")", seed)
     return retH.cpu().numpy()
 
 
-doIntegration(ppp)
+doIntegration(ppp, seed=0)
+doIntegration(ppp, seed=0)
+calc_std = []
+for s in range(5):
+    calc_std.append(doIntegration(ppp, seed=s))
+calc_std = float(np.array(calc_std).std())
+print("calc_std", calc_std, 'H_precision_expected', H_precision_expected, ' both should be similar in the thumb rule of Spall, IEEE, 1998, 34, 817-823')
 
-ret = minimizeCompass(doIntegration, x0=ppp, deltainit=0.1, deltatol=0.05, paired=False, bounds=[[0.01, 20.0]] * (ppp.shape[0]), errorcontrol=do_errorcontrol, funcNinit=10, feps=0.0005, scaling=ppp)
+starttime = time.time()
+
+# This very robust optimizer is not very fast in my tests, at least two orders of magnitude slower than SPSA
+# ret = minimizeCompass(doIntegration, x0=ppp, deltainit=0.6, deltatol=0.1, bounds=[[0.01, 20.0]] * (ppp.shape[0]), errorcontrol=do_errorcontrol, funcNinit=30, feps=0.003, disp=True, paired=True, alpha=0.2)
+ret = minimizeSPSA(doIntegration, x0=ppp, bounds=[[0.01, 20.0]] * (ppp.shape[0]), disp=True, niter=100, c=H_precision_expected)  # , gamma=0.2, a=0.2)
 
 print(ret)
+print("time", time.time() - starttime)
+
+doIntegration(ret.x, seed=None, N=10 * N_Int_Points)
+doIntegration(ret.x, seed=None, N=100 * N_Int_Points)
 
 if do_plot_every is not None:
     doplot(torch.tensor(ret.x))
     plt.show(block=True)
-
-# file:////home/detlef/Nextcloud/SCHULE/QMpytorch/Docs/PartIntMulti.svg
-
-
-# <see cref="file://./Docs/PartIntMulti.jpg"/>
