@@ -285,7 +285,6 @@ def doIntegration(pinp, seed=None, N=None):
 
 
 doIntegration(ppp, seed=0)
-doIntegration(ppp, seed=0)
 calc_std = []
 for s in range(5):
     calc_std.append(doIntegration(ppp, seed=s))
