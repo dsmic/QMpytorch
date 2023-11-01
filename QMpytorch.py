@@ -6,7 +6,7 @@ import torch
 from torchquad import VEGAS, set_up_backend, set_log_level
 from torch import vmap
 import time
-from noisyopt import minimizeCompass, minimizeSPSA
+from noisyopt import minimizeSPSA
 from itertools import permutations
 from sympy.combinatorics.permutations import Permutation
 
@@ -20,7 +20,8 @@ vmap_chunk_size = 100000  # 2**13
 print("vmap_chunk_size", vmap_chunk_size)
 
 N_Int_Plot = 5000
-N_Int_Points = 300000
+N_Int_Points = 10000000
+do_paired = True
 
 set_up_backend("torch", data_type="float64")
 # set_log_level("INFO")
@@ -33,10 +34,10 @@ j = None
 # ppp[0] = distance between nuclei
 # ppp[1] = is used for the integration range of the nuclei
 # ppp[2] = is used for the integration range of the electrons
-# ppp = np.array([3.25, 0.342, 5.695, 11.8, 0.5, 0.5, 1.0])
 
-ppp = np.array([3.0, 0.5, 6, 12, 0.5, 0.5, 1.0])
-H_precision_expected = 0.05  # This is the c parameter of the SPSA optimizer, it is approximatly the standard deviation of the energy
+ppp = np.array([1.5,  0.2,  2.5,  5,  4])
+H_precision_expected = 0.005   # This is the c parameter of the SPSA optimizer, it is approximatly the standard deviation of the energy
+start_step = 0.3
 
 do_plot_every = None
 plot_factor = 1.0
@@ -45,9 +46,10 @@ replot = False
 
 V_strength = 1.0
 
+
 # the following functions are used to calculate the integration ranges
 def calc_int_electron(ppp):
-    return (ppp[2] + 0.5) * 1.1
+    return (ppp[0] * 1.5 + ppp[1]) * 1.2
 
 
 def calc_int_nuclei(ppp):
@@ -57,6 +59,7 @@ def calc_int_nuclei(ppp):
 dist_nuclei = ppp[0]
 nNuclei = 3
 nElectrons = 3
+q_nuclei = 1
 
 m_Nuclei = 1836
 m_Electron = 1
@@ -76,11 +79,27 @@ def CutRange(x, r, f):
     return torch.sigmoid((x+r)*f)*(1-torch.sigmoid((x-r)*f))
 
 
-q = torch.tensor([-1]*nElectrons + [1]*nNuclei)
+q = torch.tensor([-1]*nElectrons + [q_nuclei]*nNuclei)
 
 
+def damp(x, w):
+    return torch.exp(-(x/w)**2)
+    # ret = torch.sigmoid(x/w - w) * torch.sigmoid(-x/w - w)
+    # return ret / torch.sigmoid(-w)**2
+
+
+def wf_form(x, w):
+    return torch.exp(-(x/w)**2)
+    # ret = torch.sigmoid(x/w * 2.0) * torch.sigmoid(-x/w * 2.0)
+    # return ret * 4.0
+
+
+# A potential of a one dimensional chain simelar to the 3D Coulumb, checked with Mathematica
+# V[x_, y_, z_] := 1/Sqrt[x^2 + y^2 + z^2]
+# Plot[{NIntegrate[V[x, y, z], {y, -0.5, 0.5}, {z, -0.5, 0.5}], 1/(Abs[x/1.2] + 0.28)}, {x, -3, 3}]
 def V(dx):
-    return torch.exp(-dx**2)
+    # return 1.0 / (torch.abs(dx / 1.2) + 0.28)    # Coulomb potential part integrated from 3D
+    return torch.exp(-dx**2)            # Easy to integrate potential
 
 
 def Vpot(xinp):
@@ -130,33 +149,55 @@ def H(wf, x):
     return gg
 
 
-def CorrelateWF(xinp, ppp_part):
+def CorrelateWF(x, ppp_part):
     """increase the spatial probability density if different charged particles are close together, decrease it if they are of the same charge"""
-    x = xinp + offsets
+    # x = xinp + offsets
     x1 = x.reshape(-1, 1)
     x2 = x.reshape(1, - 1)
     mask = (q.reshape(-1, 1) * q.reshape(1, -1))
     dx = x1 - x2
-    res = torch.where(mask > 0, -ppp_part[0]*torch.exp(-ppp_part[2]*dx**2), ppp_part[1]*torch.exp(-ppp_part[2]*dx**2))
+    # res = torch.where(mask > 0, -ppp_part[0]*torch.exp(-torch.abs(dx / ppp_part[2])), ppp_part[1]*torch.exp(-torch.abs(dx / ppp_part[2])))
+    res = torch.where(mask > 0, -ppp_part[0] * damp(dx, ppp_part[2]), ppp_part[1] * damp(dx, ppp_part[2]))
     res = res.triu(diagonal=1)
     return (torch.ones((nParticles, nParticles)) + res).prod()
 
 
+# spin wave function
+sf_array = torch.zeros([2] * nElectrons)
+sf_array[0, 1, 0] = 1
+sf_array[0, 0, 1] = -1
+sf_array[1, 0, 0] = -1
+
+
 def testwf(ppp, xx):
+    def sf(x):
+        x = x[:nElectrons]
+        res = sf_array[tuple(x)]
+        if res == 0:
+            raise Exception("unknown spin configuration", x)
+        return res
     res = 0
     for i in range(perms.shape[0]):
+        tt = torch.tensor([0, 1, 0, 0, 0, 0])
         x = xx[tuple(perms[i]), ]
-        res += perms_p[i] * torch.exp(-(x[nElectrons:] / ppp[1])**2).prod(-1) * CutRange(x[:nElectrons], ppp[2], 5).prod(-1) * (
-                                                                                                                                torch.cos(x[0] * torch.pi / ppp[3]) *
-                                                                                                                                torch.sin(x[1] * torch.pi / ppp[3] * 2) *
-                                                                                                                                torch.cos(x[2] * torch.pi / ppp[3] * 3) *
-                                                                                                                                CorrelateWF(x, ppp[[4, 5, 6]])
-                                                                                                                                )
-    return res
+        t = tt[tuple(perms[i]), ]
+        xo = x + offsets
+        res += perms_p[i] * sf(t) * (
+                            # CorrelateWF(xo, ppp[[3, 4, 5]]) *
+                            (1 + ppp[4] * wf_form(xo[4]-xo[0], ppp[3])) *
+                            (1 + ppp[4] * wf_form(xo[5]-xo[0], ppp[3])) *
+                            (1 + ppp[4] * wf_form(xo[3]-xo[1], ppp[3])) *
+                            (1 + ppp[4] * wf_form(xo[5]-xo[1], ppp[3])) *
+                            (1 + ppp[4] * wf_form(xo[3]-xo[2], ppp[3])) *
+                            (1 + ppp[4] * wf_form(xo[4]-xo[2], ppp[3])) *
+                            wf_form(xo[[0, 1, 2]] - xo[[3, 4, 5]], ppp[2]).prod()
+                            )
+    return res * torch.exp(-(x[nElectrons:] / ppp[1])**2).prod(-1)  # nuclei not permuted here
 
 
 def Norm(wf, x):
     return (torch.conj(wf(x)) * wf(x)).real
+
 
 # create offsets for the chain, one particle is in the middle (should be uneven)
 for i in range(nNuclei):
@@ -176,7 +217,7 @@ for i in permutations(list(range(nElectrons))):
 
 perms = np.array(perms)
 # print(perms)
-# print(perms.shape)
+print('perms.shape', perms.shape)
 
 
 def plotwf(ppp, plot_pos, where):
@@ -275,31 +316,51 @@ def doIntegration(pinp, seed=None, N=None):
                                                       dim=nParticles, N=N_Int_Points_loc,  integration_domain=IntElectron*nElectrons+IntNuclei*nNuclei, vegasmap=map_Norm, use_warmup=(map_Norm is None), seed=seed)
     if seed is None:
         map_Norm = Integrator.map
+    else:
+        map_Norm = None
     integral_value = Integrator.integrate(lambda y: H(lambda x: testwf(ppp, x), y),
                                           dim=nParticles, N=N_Int_Points_loc,  integration_domain=IntElectron*nElectrons+IntNuclei*nNuclei, vegasmap=map_H, use_warmup=(map_H is None), seed=seed)
     if seed is None:
         map_H = Integrator.map
+    else:
+        map_H = None
+    if Normvalue < 0.0001:
+        print("Normvalue too small", Normvalue)
+        raise Exception("Normvalue too small, probable zero wave function (e.g. due to antisymmetry)")
     retH = integral_value/Normvalue
-    print("              H", "{:.5f}".format(float(retH.cpu())), ppp.cpu().numpy(), "{:.2f}".format(time.time() - start), "(" + "{:.2f}".format(plottime) + ")", seed)
+    print("              H", "{:.5f}".format(float(retH.cpu())), ppp.cpu().numpy(), "{:.2f}".format(time.time() - start), "(" + "{:.2f}".format(plottime) + ")", 'raw Norm integral value', "{:.5f}".format(Normvalue), 'seed', seed)
     return retH.cpu().numpy()
 
 
-doIntegration(ppp, seed=0)
-calc_std = []
-for s in range(5):
-    calc_std.append(doIntegration(ppp, seed=s))
-calc_std = float(np.array(calc_std).std())
-print("calc_std", calc_std, 'H_precision_expected', H_precision_expected, ' both should be similar in the thumb rule of Spall, IEEE, 1998, 34, 817-823')
+if do_paired:
+    # doIntegration(ppp)  # activate this to check, if integration with the same seed gives the same result
+    calc_std = []
+    for s in range(5):
+        calc_std.append(doIntegration(ppp, seed=s))
+    calc_std = float(np.array(calc_std).std())
+    print("calc_std", calc_std, 'H_precision_expected', H_precision_expected, ' both should be similar in the thumb rule of Spall, IEEE, 1998, 34, 817-823')
+else:
+    doIntegration(ppp)
 
 starttime = time.time()
 
 # This very robust optimizer is not very fast in my tests, at least two orders of magnitude slower than SPSA
 # ret = minimizeCompass(doIntegration, x0=ppp, deltainit=0.6, deltatol=0.1, bounds=[[0.01, 20.0]] * (ppp.shape[0]), errorcontrol=do_errorcontrol, funcNinit=30, feps=0.003, disp=True, paired=True, alpha=0.2)
-ret = minimizeSPSA(doIntegration, x0=ppp, bounds=[[0.01, 20.0]] * (ppp.shape[0]), disp=True, niter=100, c=H_precision_expected)  # , gamma=0.2, a=0.2)
+ret = minimizeSPSA(doIntegration, x0=ppp, bounds=[[0.01, 20.0]] * (ppp.shape[0]), disp=True, niter=100, c=H_precision_expected, paired=do_paired, a=start_step)  # , gamma=0.2, a=0.2)
 
 print(ret)
 print("time", time.time() - starttime)
 
+print("some checks on the minimum")
+center = doIntegration(ret.x, seed=0, N=10 * N_Int_Points)
+for k in range(len(ret.x)):
+    addx = np.zeros(len(ret.x))
+    addx[k] = 0.5
+    newx = ret.x + addx
+    ny = doIntegration(newx, seed=0, N=10 * N_Int_Points)
+    print(k, (ny - center))
+
+print("integration with higher precision")
 doIntegration(ret.x, seed=None, N=10 * N_Int_Points)
 doIntegration(ret.x, seed=None, N=100 * N_Int_Points)
 
