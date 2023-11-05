@@ -195,47 +195,58 @@ inline false
 status open
 
 \begin_layout Plain Layout
+
 def get_ratio(wf, x, kk):
 \end_layout
 
 \begin_layout Plain Layout
+
     """
 \end_layout
 
 \begin_layout Plain Layout
+
     wf: wavefunction
 \end_layout
 
 \begin_layout Plain Layout
+
     xx: The variable, nParticles-1 nParticles-1 and one variable at pos
  kk
 \end_layout
 
 \begin_layout Plain Layout
+
     kk: position of the extra variable
 \end_layout
 
 \begin_layout Plain Layout
+
     """
 \end_layout
 
 \begin_layout Plain Layout
+
     xx1 = torch.cat((x[:kk], x[-2:-1], x[kk:nParticles-1]))
 \end_layout
 
 \begin_layout Plain Layout
+
     xx2 = torch.cat((x[:kk], x[-1:], x[kk:nParticles-1]))
 \end_layout
 
 \begin_layout Plain Layout
+
     t1 = Norm(wf, xx1)
 \end_layout
 
 \begin_layout Plain Layout
+
     t2 = Norm(wf, xx2)
 \end_layout
 
 \begin_layout Plain Layout
+
     return t1, t2
 \end_layout
 
@@ -248,115 +259,157 @@ def get_ratio(wf, x, kk):
 \end_layout
 
 \begin_layout Plain Layout
+
 def do_entangled_std(pinp, kk, seed=None, N=None):
 \end_layout
 
 \begin_layout Plain Layout
+
     if N is not None:
 \end_layout
 
 \begin_layout Plain Layout
+
         N_Int_Points_loc = N
 \end_layout
 
 \begin_layout Plain Layout
+
     else:
 \end_layout
 
 \begin_layout Plain Layout
+
         N_Int_Points_loc = N_Int_Points
 \end_layout
 
 \begin_layout Plain Layout
+
     N_Int_Points_loc = int(np.sqrt(N_Int_Points_loc))
 \end_layout
 
 \begin_layout Plain Layout
+
     IntElectron = [[-calc_int_electron(ppp), calc_int_electron(ppp)]]
 \end_layout
 
 \begin_layout Plain Layout
+
     IntNuclei = [[-calc_int_nuclei(ppp), calc_int_nuclei(ppp)]]
 \end_layout
 
 \begin_layout Plain Layout
+
     intdomain = IntElectron*nElectrons+IntNuclei*nNuclei
 \end_layout
 
 \begin_layout Plain Layout
+
     intdomain_d = intdomain[:kk] + intdomain[kk+1:]
 \end_layout
 
 \begin_layout Plain Layout
+
     stds = []
 \end_layout
 
 \begin_layout Plain Layout
+
     means = []
 \end_layout
 
 \begin_layout Plain Layout
+
+    densities = []
+\end_layout
+
+\begin_layout Plain Layout
+
     for _ in range(N_Int_Points_loc):
 \end_layout
 
 \begin_layout Plain Layout
+
         rand_tensor = torch.rand(N_Int_Points_loc, len(intdomain_d)) * (torch.tens
 or(intdomain_d)[:,1]-torch.tensor(intdomain_d)[:,0]) + torch.tensor(intdomain_d)[:
 ,0]
 \end_layout
 
 \begin_layout Plain Layout
+
         rand_same = torch.rand(1, 2) * (torch.tensor(intdomain[kk])[1] - torch.tens
 or(intdomain[kk])[0]) + torch.tensor(intdomain[kk])[0]
 \end_layout
 
 \begin_layout Plain Layout
+
         rand_tensor = torch.cat((rand_tensor, rand_same.repeat((N_Int_Points_loc,
  1))), dim=1)
 \end_layout
 
 \begin_layout Plain Layout
+
         t1, t2 = vmap(lambda y: get_ratio(lambda x: testwf(ppp, x), y, kk),
  chunk_size=vmap_chunk_size)(rand_tensor)
 \end_layout
 
 \begin_layout Plain Layout
+
         # res = torch.log(t1 / (t2+1E-10))
 \end_layout
 
 \begin_layout Plain Layout
+
         # stds.append(res.std())
 \end_layout
 
 \begin_layout Plain Layout
+
         # means.append(res.mean())
 \end_layout
 
 \begin_layout Plain Layout
+
         # print('mean', res.mean(), 'std', res.std())
 \end_layout
 
 \begin_layout Plain Layout
+
         res = torch.log(t1 / (t2+1E-10))
 \end_layout
 
 \begin_layout Plain Layout
-        res_mean = (res * (t1+t2)).sum() / (t1+t2).sum()
+
+        dens_mean = (t1+t2).sum()
 \end_layout
 
 \begin_layout Plain Layout
-        res_std = (res**2 * (t1+t2)).sum() / (t1+t2).sum() - res_mean**2
+
+        res_mean = (res * (t1+t2)).sum() / dens_mean
 \end_layout
 
 \begin_layout Plain Layout
+
+        res_std = (res**2 * (t1+t2)).sum() / dens_mean - res_mean**2
+\end_layout
+
+\begin_layout Plain Layout
+
         stds.append(res_std)
 \end_layout
 
 \begin_layout Plain Layout
+
         means.append(res_mean)
 \end_layout
 
 \begin_layout Plain Layout
+
+        densities.append(dens_mean)
+\end_layout
+
+\begin_layout Plain Layout
+
         # print('mean', res_mean, 'std', res_std)
 \end_layout
 
@@ -365,18 +418,33 @@ or(intdomain[kk])[0]) + torch.tensor(intdomain[kk])[0]
 \end_layout
 
 \begin_layout Plain Layout
-    res_mean = np.array(means).mean()
+
+    # res_mean = np.array(means).mean()
 \end_layout
 
 \begin_layout Plain Layout
-    res = np.array(stds).mean()
+
+    # res = np.array(stds).mean()
 \end_layout
 
 \begin_layout Plain Layout
+
+    res_mean = (np.array(means)*np.array(densities)).sum() / (np.array(densities)).su
+m()
+\end_layout
+
+\begin_layout Plain Layout
+
+    res = (np.array(stds)*np.array(densities)).sum() / (np.array(densities)).sum()
+\end_layout
+
+\begin_layout Plain Layout
+
     print('log of ratio full mean', res_mean, 'std', res)
 \end_layout
 
 \begin_layout Plain Layout
+
     return res, res_mean
 \end_layout
 
