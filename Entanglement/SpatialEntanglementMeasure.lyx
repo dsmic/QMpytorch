@@ -100,6 +100,102 @@ This is a work in progress: This is a part, which does something similar
 \end_layout
 
 \begin_layout Standard
+Taking a two particle wave function in one dimension 
+\begin_inset Formula $\psi(x,y)$
+\end_inset
+
+ we suggest an entanglement measure.
+ The wave function is not entangled, if it can be written in the form 
+\begin_inset Formula 
+\[
+\psi_{unentangled}(\overrightarrow{x},y)=\phi_{1}(\overrightarrow{x})\phi_{2}(y)\ ,
+\]
+
+\end_inset
+
+
+\end_layout
+
+\begin_layout Standard
+and the density of state
+\begin_inset Formula 
+\[
+\rho(\overrightarrow{x},y)=\psi(\overrightarrow{x},y)\,.
+\]
+
+\end_inset
+
+
+\end_layout
+
+\begin_layout Standard
+We can now compare two densities of states 
+\begin_inset Formula $\rho(\overrightarrow{x},y_{1})$
+\end_inset
+
+ and 
+\begin_inset Formula $\rho(\overrightarrow{x},y_{2})$
+\end_inset
+
+with the logarithm ratio:
+\begin_inset Formula 
+\[
+r(\overrightarrow{x},y_{1},y_{2})=\log\left(\frac{\rho(\overrightarrow{x},y_{1})}{\rho(\overrightarrow{x},y_{2})}\right)\,,
+\]
+
+\end_inset
+
+and the weight with the density of states:
+\begin_inset Formula 
+\[
+w(\overrightarrow{x},y_{1},y_{2})=\rho(\overrightarrow{x},y_{1})+\rho(\overrightarrow{x},y_{2})
+\]
+
+\end_inset
+
+
+\end_layout
+
+\begin_layout Standard
+which would only depend on 
+\begin_inset Formula $y_{1}$
+\end_inset
+
+ and 
+\begin_inset Formula $y_{2}$
+\end_inset
+
+ in the case of no entanglement.
+ This weighted logarithm will have a mean value and a standard derivation.
+\end_layout
+
+\begin_layout Standard
+From this we can define a mean value
+\begin_inset Formula 
+\[
+m=\int_{y_{1}y_{2}}\left(\frac{\int_{\overrightarrow{x}}r(\overrightarrow{x},y_{1},y_{2})\cdot w(\overrightarrow{x},y_{1},y_{2})d\overrightarrow{x}}{\int_{\overrightarrow{x}y_{1}y_{2}}w(\overrightarrow{x},y_{1},y_{2})d\overrightarrow{x}}\right)dy_{1}dy_{2}\,,
+\]
+
+\end_inset
+
+and the standard deviation
+\begin_inset Formula 
+\[
+m=\int_{y_{1}y_{2}}\left(\frac{\int_{\overrightarrow{x}}r^{2}(\overrightarrow{x},y_{1},y_{2})\cdot w(\overrightarrow{x},y_{1},y_{2})d\overrightarrow{x}}{\int_{\overrightarrow{x}y_{1}y_{2}}w(\overrightarrow{x},y_{1},y_{2})d\overrightarrow{x}}\right)dy_{1}dy_{2}\,,
+\]
+
+\end_inset
+
+
+\end_layout
+
+\begin_layout Standard
+At the moment the normation of the outer integrals are not identical to
+ the following source code...
+ Not sure, what will be correct!
+\end_layout
+
+\begin_layout Standard
 \begin_inset listings
 inline false
 status open
