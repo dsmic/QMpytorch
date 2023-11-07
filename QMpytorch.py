@@ -1,4 +1,5 @@
 # Python program to do some QM calculations in PyTorch
+__docformat__ = "google"
 # importing libraries
 import matplotlib.pyplot as plt
 import numpy as np
@@ -13,22 +14,27 @@ from sympy.combinatorics.permutations import Permutation
 np.set_printoptions(linewidth=np.inf)
 np.set_printoptions(formatter={'float': lambda x: "{0:0.3f}".format(x)})
 
-# this may tune the performance and memory usage
-# smaller values on cpu can imporove cache usage
-# larger values on gpu can improve parallelization
-vmap_chunk_size = 100000  # 2**13
+vmap_chunk_size = 100000
+"""
+this may tune the performance and memory usage
+smaller values on cpu can imporove cache usage
+larger values on gpu can improve parallelization
+"""
 print("vmap_chunk_size", vmap_chunk_size)
 
 N_Int_Plot = 5000
+"""number of integration points for plotting"""
 N_Int_Points = 1000000
+"""number of integration points for calculation"""
 do_paired = False
+"""use same seed for pairs of integrations for the optimization of the parameters"""
 
 set_up_backend("torch", data_type="float64")
 # set_log_level("INFO")
 
-# if j is not None then complex numbers are used
 j = None
 # j = torch.complex(torch.tensor(0, dtype=torch.float64), torch.tensor(1, dtype=torch.float64))
+"""if j is not None but complex j, then complex numbers are used"""
 
 # start values of the parameters of the wave function
 # ppp[0] = distance between nuclei
@@ -36,73 +42,90 @@ j = None
 # ppp[2] = is used for the integration range of the electrons
 
 ppp = np.array([1.5,  0.2,  2.5,  5,  4])
-H_precision_expected = 0.005   # This is the c parameter of the SPSA optimizer, it is approximatly the standard deviation of the energy
+"""tensor of the parameters for the wave function to be optimized"""
+H_precision_expected = 0.005
+"""This is the c parameter of the SPSA optimizer, it is approximatly the standard deviation of the energy"""
 start_step = 0.3
+"""This is the a parameter of the SPSA optimizer"""
 
 do_plot_every = None
+"""plot during calculation after do_plot_every integrations """
 plot_factor = 1.0
+"""scaling of the plot"""
 plot_npoints = 30
+"""number of x points for the plots"""
 replot = False
+"""reuse open pyplot window"""
 
 V_strength = 1.0
+"""Factor for the potential to quickly change strength"""
 
 
 # the following functions are used to calculate the integration ranges
 def calc_int_electron(ppp):
     """
-    ppp: tensor of parameters
-
-    result is the + - range of the electron integration
+    Args:
+        ppp: tensor of parameters
+    Returns:
+        result is the + - range of the electron integration
     """
     return (ppp[0] * 1.5 + ppp[1]) * 1.2
 
 
 def calc_int_nuclei(ppp):
     """
-    ppp: tensor of parameters
-
-    result is the + - range of the nuclei integration
+    Args:
+        ppp: tensor of parameters
+    Returns:
+        result is the + - range of the nuclei integration
     """
     return 1.3 * ppp[1]
 
 
 dist_nuclei = ppp[0]
+"""this defines the distance of the nucleis"""
 nNuclei = 3
+"""number of nuclei"""
 nElectrons = 3
+"""number of electrons"""
 q_nuclei = 1
-
+"""charge of the nuclei"""
 m_Nuclei = 1836
+"""mass of the nuclei"""
 m_Electron = 1
-
-Integrator = VEGAS()
-Integrator_plot = VEGAS()
+"""mass of the electrons"""
 
 nParticles = nElectrons + nNuclei
+"""total number of particles"""
 m = torch.tensor([m_Electron]*nElectrons + [m_Nuclei]*nNuclei)
+"""tensor of the masses of all particles, taken from previous definitions"""
 
-offsets = torch.zeros(nParticles)  # at 0 there must be high spatial probability density for VEGAS integration to work
+offsets = torch.zeros(nParticles)
+"""at 0 there must be high spatial probability density for VEGAS integration to work
+therefore offsets are used to shift"""
 for i in range(nNuclei):
     offsets[i+nElectrons] = dist_nuclei * (i - nNuclei//2)
 
 
 def CutRange(x, r, f):
-    """
-    helper to be used in wave functions, cuts an range -r to +r with some parameter f for the hardness of the cut
-    x: position
-    r: + - range
-    f: hardness of the cut
+    """helper to be used in wave functions, cuts an range -r to +r with some parameter f for the hardness of the cut
+    Args:
+        x: position
+        r: + - range
+        f: hardness of the cut
     """
     return torch.sigmoid((x+r)*f)*(1-torch.sigmoid((x-r)*f))
 
 
 q = torch.tensor([-1]*nElectrons + [q_nuclei]*nNuclei)
+"""the charges of all particles"""
 
 
 def damp(x, w):
-    """
-    typical gaussian form to be used in wave functions
-    x: position
-    w: width parameter
+    """typical gaussian form to be used in wave functions
+    Args:
+        x: position
+        w: width parameter
     """
     return torch.exp(-(x/w)**2)
     # ret = torch.sigmoid(x/w - w) * torch.sigmoid(-x/w - w)
@@ -110,10 +133,10 @@ def damp(x, w):
 
 
 def wf_form(x, w):
-    """
-    typical gaussian form to be used in wave functions
-    x: position
-    w: width parameter
+    """typical gaussian form to be used in wave functions
+    Args:
+        x: position
+        w: width parameter
     """
     return torch.exp(-(x/w)**2)
     # ret = torch.sigmoid(x/w * 2.0) * torch.sigmoid(-x/w * 2.0)
@@ -125,8 +148,10 @@ def wf_form(x, w):
 # Plot[{NIntegrate[V[x, y, z], {y, -0.5, 0.5}, {z, -0.5, 0.5}], 1/(Abs[x/1.2] + 0.28)}, {x, -3, 3}]
 def V(dx):
     """
-    dx: distance of two particles
-    retuns the potential from a toy function, not exactly coulomb ...
+    Args:
+        dx: distance of two particles
+    Returns:
+        the potential from a toy function, not exactly coulomb ...
     """
     # return 1.0 / (torch.abs(dx / 1.2) + 0.28)    # Coulomb potential part integrated from 3D
     return torch.exp(-dx**2)            # Easy to integrate potential
@@ -134,8 +159,10 @@ def V(dx):
 
 def Vpot(xinp):
     """
-    xinp: positions
-    returns the Potential
+    Args:
+        xinp: positions
+    Returns:
+        the Potential
     """
     x = xinp + offsets
     x1 = x.reshape(-1, 1)
@@ -148,9 +175,11 @@ def Vpot(xinp):
 
 def Epot(wf, x):
     """
-    wf: wave function takes only x
-    x: position
-    returns the value of the potential energy integrand
+    Args:
+        wf: wave function takes only x
+        x: position
+    Returns:
+        returns the value of the potential energy integrand
     """
     return (torch.conj(wf(x)) * Vpot(x) * wf(x)).real
 
@@ -172,10 +201,14 @@ def Epot_plot(wf, x, plot_pos):
 
 
 def H_single(wf, x):
-    """
-    wf: wave function takes only x
-    x: position
-    returns the value of the H integrand
+    """calculates the value of the H integrand
+
+    Args:
+        wf (function): wave function takes only x
+        x (tensor): position
+
+    Returns:
+        float: the value of the H integrand
     """
     # <see cref="file://./Docs/PartIntMulti.jpg"/>
     if j is None:
@@ -188,13 +221,7 @@ def H_single(wf, x):
 
 
 def H(wf, x):
-    """
-    wf: wave function takes only x
-    x: position
-
-    vectorized function of H_single
-    returns the value of the H integrand
-    """
+    """vectorized function of H_single"""
     gg = vmap(lambda x: H_single(wf, x), chunk_size=vmap_chunk_size)(x)
     return gg
 
@@ -214,15 +241,20 @@ def CorrelateWF(x, ppp_part):
 
 # spin wave function
 sf_array = torch.zeros([2] * nElectrons)
+"""spin wave function, implemented as array"""
 sf_array[0, 1, 0] = 1
 sf_array[0, 0, 1] = -1
 sf_array[1, 0, 0] = -1
 
 
 def testwf(ppp, xx):
-    """
-    ppp: tensor of the parameters for the wave function
-    xx: position
+    """This defines the wave function
+
+    Args:
+        ppp (tensor): tensor of the parameters for the wave function
+        xx (tensor): position
+    Returns:
+        float: value of the wave function
     """
     def sf(x):
         x = x[:nElectrons]
@@ -250,10 +282,13 @@ def testwf(ppp, xx):
 
 
 def Norm(wf, x):
-    """
-    wf: wave function, takes only a x tensor as input
-    x: x tensor to calculate
-    returns the spacial density
+    """Calculates the spatial density of the wave function
+    Args:
+        wf (function): wave function, takes only a x tensor as input
+        x (tensor): x tensor to calculate
+
+    Returns:
+        float: the spacial density
     """
     return (torch.conj(wf(x)) * wf(x)).real
 
@@ -262,29 +297,15 @@ def Norm(wf, x):
 for i in range(nNuclei):
     offsets[i+nElectrons] = ppp[0] * (i - nNuclei//2)
 
-# create permutations of identical particles, only the electrons are permuted, the nuclei not at the moment.
-perms = []
-perms_p = []
-for i in permutations(list(range(nElectrons))):
-    a = Permutation(list(i))
-    p = a.parity()
-    if p == 0:
-        p = -1
-    # print(i, p)
-    perms.append(list(i) + list(range(nElectrons, nParticles)))
-    perms_p.append(p)
-
-perms = np.array(perms)
-# print(perms)
-print('perms.shape', perms.shape)
-
 
 def plotwf(ppp, plot_pos, where):
-    """
-    plot function for wave function
-    ppp: parameters
-    plot_pos: which position to plot
-    where: on which subplot to plot
+    """plot function for wave function
+
+    Args:
+        ppp (tensor): parameters
+        plot_pos (int): which position to plot
+        where (int): on which subplot to plot
+
     """
     global offsets
     for i in range(nNuclei):
@@ -326,9 +347,10 @@ if replot:
 
 
 def doplot(pinp):
-    """
-    pinp: parameters
-    plot some wave functions and potential energy
+    """ plot some wave functions and potential energy
+
+    Args:
+        pinp (tensor or list): parameters
     """
     global fig, axs
     ppp = torch.tensor(pinp)
@@ -350,22 +372,15 @@ def doplot(pinp):
         plt.show()
 
 
-if do_plot_every is not None:
-    doplot(ppp)
-    if replot:
-        plt.show(block=False)
-
-plotcounter = 0
-
-map_Norm = None
-map_H = None
-
-
 def doIntegration(pinp, seed=None, N=None):
-    """
-    pinp: list (or tensor) of the parameters
-    seed: random seed
-    N: Number of integration points
+    """Does the multi dimensional integration to calculate the energy of the Schrödinger equation
+    Args:
+        pinp (tensor or list): wave function parameters
+        seed (int, optional): random seed for integration. Defaults to None.
+        N (int, optional): Number of integration points. Defaults to None, taking a global variable.
+
+    Returns:
+        float: value of the integral
     """
     global plotcounter, map_Norm, map_H
     if N is not None:
@@ -408,9 +423,10 @@ def doIntegration(pinp, seed=None, N=None):
 
 def get_ratio(wf, x, kk):
     """
-    wf: wavefunction
-    xx: The variable, nParticles-1 nParticles-1 and one variable at pos kk
-    kk: position of the extra variable
+    Args:
+        wf: wavefunction
+        xx: The variable, nParticles-1 nParticles-1 and one variable at pos kk
+        kk: position of the extra variable
     """
     xx1 = torch.cat((x[:kk], x[-2:-1], x[kk:nParticles-1]))
     xx2 = torch.cat((x[:kk], x[-1:], x[kk:nParticles-1]))
@@ -420,11 +436,16 @@ def get_ratio(wf, x, kk):
 
 
 def do_entangled_std(pinp, kk, seed=None, N=None):
-    """
-    calculate entanglement of one position against all others
-    pinp: parameters
-    kk: which position
-    N: number of random points to use
+    """calculate entanglement of one position against all others
+
+    Args:
+        pinp (tensor or list): parameters
+        kk (int): which position
+        seed (int, optional): seed for the random points. Defaults to None.
+        N (int, optional): number of random points to use. Defaults to None and takes a global variable.
+
+    Returns:
+        tuple of float: standard deviation and mean of the entanglement measure
     """
     ppp = torch.tensor(pinp)
     if N is not None:
@@ -465,49 +486,76 @@ def do_entangled_std(pinp, kk, seed=None, N=None):
     return res, res_mean
 
 
-if do_paired:
-    # this checks for the integration error
-    # doIntegration(ppp)  # activate this to check, if integration with the same seed gives the same result
-    calc_std = []
-    for s in range(5):
-        calc_std.append(doIntegration(ppp, seed=s))
-    calc_std = float(np.array(calc_std).std())
-    print("calc_std", calc_std, 'H_precision_expected', H_precision_expected, ' both should be similar in the thumb rule of Spall, IEEE, 1998, 34, 817-823')
-else:
-    doIntegration(ppp)
-
-starttime = time.time()
-
-
 def show_entanglement(ppp):
+    """calculate for every particle the entanglement ratio"""
     for k in range(nParticles):
         do_entangled_std(ppp, k)
 
 
-show_entanglement(ppp)
+if __name__ == "__main__":
+    # create permutations of identical particles, only the electrons are permuted, the nuclei not at the moment.
+    perms = []
+    perms_p = []
+    for i in permutations(list(range(nElectrons))):
+        a = Permutation(list(i))
+        p = a.parity()
+        if p == 0:
+            p = -1
+        # print(i, p)
+        perms.append(list(i) + list(range(nElectrons, nParticles)))
+        perms_p.append(p)
 
-# This very robust optimizer is not very fast in my tests, at least two orders of magnitude slower than SPSA
-# ret = minimizeCompass(doIntegration, x0=ppp, deltainit=0.6, deltatol=0.1, bounds=[[0.01, 20.0]] * (ppp.shape[0]), errorcontrol=do_errorcontrol, funcNinit=30, feps=0.003, disp=True, paired=True, alpha=0.2)
-ret = minimizeSPSA(doIntegration, x0=ppp, bounds=[[0.01, 20.0]] * (ppp.shape[0]), disp=True, niter=100, c=H_precision_expected, paired=do_paired, a=start_step)  # , gamma=0.2, a=0.2)
+    perms = np.array(perms)
+    # print(perms)
+    print('perms.shape', perms.shape)
+    if do_plot_every is not None:
+        doplot(ppp)
+        if replot:
+            plt.show(block=False)
 
-print(ret)
-print("time", time.time() - starttime)
+    plotcounter = 0
 
-print("some checks on the minimum")
-center = doIntegration(ret.x, seed=0, N=10 * N_Int_Points)
-for k in range(len(ret.x)):
-    addx = np.zeros(len(ret.x))
-    addx[k] = 0.5
-    newx = ret.x + addx
-    ny = doIntegration(newx, seed=0, N=10 * N_Int_Points)
-    print(k, (ny - center))
+    Integrator = VEGAS()
+    Integrator_plot = VEGAS()
+    map_Norm = None
+    map_H = None
 
-print("integration with higher precision")
-doIntegration(ret.x, seed=None, N=10 * N_Int_Points)
-doIntegration(ret.x, seed=None, N=100 * N_Int_Points)
+    if do_paired:
+        # this checks for the integration error
+        # doIntegration(ppp)  # activate this to check, if integration with the same seed gives the same result
+        calc_std = []
+        for s in range(5):
+            calc_std.append(doIntegration(ppp, seed=s))
+        calc_std = float(np.array(calc_std).std())
+        print("calc_std", calc_std, 'H_precision_expected', H_precision_expected, ' both should be similar in the thumb rule of Spall, IEEE, 1998, 34, 817-823')
+    else:
+        doIntegration(ppp)
 
-show_entanglement(ret.x)
+    starttime = time.time()
+    show_entanglement(ppp)
 
-if do_plot_every is not None:
-    doplot(torch.tensor(ret.x))
-    plt.show(block=True)
+    # This very robust optimizer is not very fast in my tests, at least two orders of magnitude slower than SPSA
+    # ret = minimizeCompass(doIntegration, x0=ppp, deltainit=0.6, deltatol=0.1, bounds=[[0.01, 20.0]] * (ppp.shape[0]), errorcontrol=do_errorcontrol, funcNinit=30, feps=0.003, disp=True, paired=True, alpha=0.2)
+    ret = minimizeSPSA(doIntegration, x0=ppp, bounds=[[0.01, 20.0]] * (ppp.shape[0]), disp=True, niter=100, c=H_precision_expected, paired=do_paired, a=start_step)  # , gamma=0.2, a=0.2)
+
+    print(ret)
+    print("time", time.time() - starttime)
+
+    print("some checks on the minimum")
+    center = doIntegration(ret.x, seed=0, N=10 * N_Int_Points)
+    for k in range(len(ret.x)):
+        addx = np.zeros(len(ret.x))
+        addx[k] = 0.5
+        newx = ret.x + addx
+        ny = doIntegration(newx, seed=0, N=10 * N_Int_Points)
+        print(k, (ny - center))
+
+    print("integration with higher precision")
+    doIntegration(ret.x, seed=None, N=10 * N_Int_Points)
+    doIntegration(ret.x, seed=None, N=100 * N_Int_Points)
+
+    show_entanglement(ret.x)
+
+    if do_plot_every is not None:
+        doplot(torch.tensor(ret.x))
+        plt.show(block=True)
