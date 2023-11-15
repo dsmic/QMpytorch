@@ -609,11 +609,11 @@ class Integration:
             tuple of float: norm of the two cases
         """
         if kk2 > kk1:
-            xx1 = torch.cat((x[:kk1], x[-3:-2], x[kk1+1:kk2], x[-2:-1], x[kk2:wfunc.nParticles-1]))
-            xx2 = torch.cat((x[:kk1], x[-3:-2], x[kk1+1:kk2], x[-1:], x[kk2:wfunc.nParticles-1]))
+            xx1 = torch.cat((x[:kk1], x[-3:-2], x[kk1:kk2-1], x[-2:-1], x[kk2-1:wfunc.nParticles-2]))
+            xx2 = torch.cat((x[:kk1], x[-3:-2], x[kk1:kk2-1], x[-1:], x[kk2-1:wfunc.nParticles-2]))
         else:
-            xx1 = torch.cat((x[:kk2], x[-2:-1], x[kk2+1:kk1], x[-3:-2], x[kk1:wfunc.nParticles-1]))
-            xx2 = torch.cat((x[:kk2], x[-1:], x[kk2+1:kk1], x[-3:-2], x[kk1:wfunc.nParticles-1]))
+            xx1 = torch.cat((x[:kk2], x[-2:-1], x[kk2:kk1-1], x[-3:-2], x[kk1-1:wfunc.nParticles-2]))
+            xx2 = torch.cat((x[:kk2], x[-1:], x[kk2:kk1-1], x[-3:-2], x[kk1-1:wfunc.nParticles-2]))
         t1 = Integration.Norm(wf, xx1)
         t2 = Integration.Norm(wf, xx2)
         return t1, t2
@@ -721,6 +721,9 @@ if __name__ == "__main__":
         Integration.do_entangled_std_pair(wfunc.ppp, 1, 4)
         Integration.do_entangled_std_pair(wfunc.ppp, 3, 4)
         Integration.do_entangled_std_pair(wfunc.ppp, 3, 5)
+        Integration.do_entangled_std_pair(wfunc.ppp, 2, 5)
+        Integration.do_entangled_std_pair(wfunc.ppp, 5, 2)
+        Integration.do_entangled_std_pair(wfunc.ppp, 3, 0)
 
     if doexcited:
         print("calculation of excited state, check if already orthogonal")
