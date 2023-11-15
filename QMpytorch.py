@@ -36,7 +36,7 @@ j = None
 # j = torch.complex(torch.tensor(0, dtype=torch.float64), torch.tensor(1, dtype=torch.float64))
 """if j is not None but complex j, then complex numbers are used"""
 
-doexcited = True
+doexcited = False
 """if True, then the excited state is calculated, if False, then the ground state"""
 doSchmidtGraham = False
 """if True, then the Schmidt Graham orthogonalization is done"""
@@ -48,7 +48,7 @@ start_step = 0.1
 do_plot_every = None
 """plot during calculation after do_plot_every integrations """
 
-check_pair_entanglement = True
+check_pair_entanglement = False
 """check entanglement of pairs of particles"""
 
 
@@ -64,9 +64,9 @@ class wfunc:
     # ppp[1] = is used for the integration range of the nuclei
     # ppp[2] = is used for the integration range of the electrons
 
-    nNuclei = 3
+    nNuclei = 4
     """number of nuclei"""
-    nElectrons = 3
+    nElectrons = 4
     """number of electrons"""
 
     nParticles = nElectrons + nNuclei
@@ -77,12 +77,18 @@ class wfunc:
             wfunc.ppp = torch.tensor(wfunc.ppp_excited)
         else:
             wfunc.ppp = torch.tensor(wfunc.ppp_ground)
+    
+    spin_state = torch.tensor([0, 1, 1, 0, 0, 0, 0, 0])
+    """corresponds to the wave function"""
     # spin wave function
     sf_array = torch.zeros([2] * nElectrons)
     """spin wave function, implemented as array"""
-    sf_array[0, 1, 0] = 1
-    sf_array[0, 0, 1] = -1
-    sf_array[1, 0, 0] = -1
+    sf_array[0, 0, 1, 1] = 1
+    sf_array[0, 1, 0, 1] = -1
+    sf_array[0, 1, 1, 0] = 1
+    sf_array[1, 0, 0, 1] = 1
+    sf_array[1, 0, 1, 0] = -1
+    sf_array[1, 1, 0, 0] = 1
 
     offsets = torch.zeros(nParticles)
     """at 0 there must be high spatial probability density for VEGAS integration to work
@@ -94,7 +100,8 @@ class wfunc:
             ppp (tensor): parameters of the wave function
         """
         for i in range(wfunc.nNuclei):
-            wfunc.offsets[i+wfunc.nElectrons] = wfunc.calc_dist_nuclei(ppp) * (i - wfunc.nNuclei//2)
+            """now also even number of nuclei should work"""
+            wfunc.offsets[i+wfunc.nElectrons] = wfunc.calc_dist_nuclei(ppp) * (2*i + 1 - wfunc.nNuclei)/2
 
     def xo_from_x(x):
         """calculate the x with offset from the x without
@@ -115,7 +122,7 @@ class wfunc:
         Returns:
             result is the + - range of the electron integration
         """
-        return (ppp[0] * 1.5 + ppp[2]) * 1.2
+        return (ppp[0] * wfunc.nNuclei / 2 + ppp[2]) * 1.2
 
     def calc_int_nuclei(ppp):
         """
@@ -161,7 +168,7 @@ class wfunc:
             return res
         res = 0
         for i in range(perms.shape[0]):
-            tt = torch.tensor([0, 1, 0, 0, 0, 0])
+            tt = wfunc.spin_state  # torch.tensor([0, 1, 0, 0, 0, 0])
             x = xx[tuple(perms[i]), ]
             t = tt[tuple(perms[i]), ]
             xo = wfunc.xo_from_x(x)
@@ -197,7 +204,7 @@ class wfunc:
             return res
         res = 0
         for i in range(perms.shape[0]):
-            tt = torch.tensor([0, 1, 0, 0, 0, 0])
+            tt = wfunc.spin_state  # torch.tensor([0, 1, 0, 0, 0, 0])
             x = xx[tuple(perms[i]), ]
             t = tt[tuple(perms[i]), ]
             xo = wfunc.xo_from_x(x)
